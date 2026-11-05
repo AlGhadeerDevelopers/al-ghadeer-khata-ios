@@ -1,0 +1,66 @@
+name: Build Al Ghadeer Khata Pro iOS (.IPA & iPhone Web App)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Compile iOS App (.ipa) on macOS Cloud Runner
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Capacitor iOS & Sync Web Assets
+        run: |
+          if [ ! -f "package.json" ]; then
+            SUBDIR=$(find . -maxdepth 2 -name "package.json" | head -n 1 | xargs dirname)
+            if [ -n "$SUBDIR" ]; then
+              cp -r "$SUBDIR"/* .
+            fi
+          fi
+          npm install
+          npx cap add ios || true
+          npx cap sync ios
+
+      - name: Inject Custom Info.plist Permissions & Pre-Scaled AppIcons
+        run: |
+          if [ -f "ios-template/Info.plist" ]; then
+            cp -f ios-template/Info.plist ios/App/App/Info.plist
+          fi
+          if [ -d "ios-template/AppIcon.appiconset" ]; then
+            rm -rf ios/App/App/Assets.xcassets/AppIcon.appiconset
+            cp -r ios-template/AppIcon.appiconset ios/App/App/Assets.xcassets/
+          fi
+
+      - name: Compile Xcode Archive & Unsigned .IPA Package
+        run: |
+          cd ios/App
+          xcodebuild clean archive \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath $RUNNER_TEMP/AlGhadeerKhataPro.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+          mkdir -p $RUNNER_TEMP/ipa/Payload
+          cp -r $RUNNER_TEMP/AlGhadeerKhataPro.xcarchive/Products/Applications/App.app $RUNNER_TEMP/ipa/Payload/
+          cd $RUNNER_TEMP/ipa
+          zip -r Al-Ghadeer-Khata-Pro-iOS.ipa Payload
+
+      - name: Upload Installable iOS .IPA Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Al-Ghadeer-Khata-Pro-iOS-IPA
+          path: ${{ runner.temp }}/ipa/Al-Ghadeer-Khata-Pro-iOS.ipa
+          if-no-files-found: error
