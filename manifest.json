@@ -1,0 +1,15 @@
+{
+  "name": "Al Ghadeer Khata Pro",
+  "short_name": "Khata Pro",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#052359",
+  "theme_color": "#052359",
+  "icons": [
+    {
+      "src": "icon (2)_2.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}
