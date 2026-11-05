@@ -1,0 +1,24 @@
+{
+  "name": "al-ghadeer-khata-pro-ios",
+  "version": "4.0.0",
+  "description": "Al Ghadeer Khata Pro \u2014 Native iOS (iPhone/iPad) & PWA Enterprise Accounting Suite",
+  "private": true,
+  "scripts": {
+    "cap:add:ios": "npx cap add ios",
+    "cap:sync:ios": "npx cap sync ios",
+    "cap:open:ios": "npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/camera": "^6.1.2",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/dialog": "^6.0.2",
+    "@capacitor/filesystem": "^6.0.2",
+    "@capacitor/ios": "^6.2.0",
+    "@capacitor/share": "^6.0.3",
+    "@capacitor/status-bar": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0"
+  }
+}

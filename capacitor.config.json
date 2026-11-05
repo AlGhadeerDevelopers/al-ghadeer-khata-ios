@@ -1,0 +1,23 @@
+{
+  "appId": "com.alghadeer.khatapro",
+  "appName": "Al Ghadeer Khata Pro",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "backgroundColor": "#052359",
+  "ios": {
+    "contentInset": "automatic",
+    "allowsLinkPreview": false,
+    "scrollEnabled": true,
+    "backgroundColor": "#052359",
+    "preferredContentMode": "mobile"
+  },
+  "plugins": {
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#052359"
+    },
+    "Camera": {
+      "presentationStyle": "fullscreen"
+    }
+  }
+}
