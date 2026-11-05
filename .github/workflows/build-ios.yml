@@ -1,13 +1,18 @@
-name: Build Al Ghadeer Khata Pro iOS (.IPA & iPhone Web App)
+name: Build Al Ghadeer Khata Pro iOS (.IPA & iPhone Home Screen App)
 
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   build-ios:
-    name: Compile iOS App (.ipa) on macOS Cloud Runner
+    name: Build iPhone Home Screen App (PWA) & Native iOS (.IPA)
     runs-on: macos-latest
 
     steps:
@@ -19,61 +24,152 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Capacitor iOS & Prepare Workspace
+      - name: Prepare & Self-Heal iPhone Home Screen App (PWA)
         run: |
-          if [ ! -f "package.json" ]; then
-            SUBDIR=$(find . -maxdepth 2 -name "package.json" | head -n 1 | xargs dirname)
-            if [ -n "$SUBDIR" ]; then
-              cp -r "$SUBDIR"/* .
+          for z in *.zip; do
+            if [ -f "$z" ]; then
+              unzip -oq "$z" || true
+            fi
+          done
+
+          FOUND_PKG=$(find . -maxdepth 3 -name "package.json" | head -n 1)
+          if [ -n "$FOUND_PKG" ]; then
+            PKG_DIR=$(dirname "$FOUND_PKG")
+            if [ "$PKG_DIR" != "." ]; then
+              cp -R "$PKG_DIR"/. .
             fi
           fi
+
           mkdir -p www
-          if [ ! -f "www/index.html" ] && [ -f "index.html" ]; then
-            cp index.html www/index.html
+          if [ ! -f "www/index.html" ]; then
+            FOUND_HTML=$(find . -maxdepth 3 -name "index.html" | head -n 1)
+            if [ -n "$FOUND_HTML" ]; then
+              cp "$FOUND_HTML" www/index.html
+            else
+              git clone --depth 1 https://github.com/AlGhadeerDevelopers/al-ghadeer-khata-android.git /tmp/ag_android 2>/dev/null || true
+              AND_HTML=$(find /tmp/ag_android -name "index.html" 2>/dev/null | head -n 1)
+              if [ -n "$AND_HTML" ]; then cp "$AND_HTML" www/index.html; fi
+            fi
           fi
+
+          FOUND_LOGO=$(find . -maxdepth 3 \( -name "icon*.jpg" -o -name "icon*.png" \) | head -n 1)
+          if [ -n "$FOUND_LOGO" ]; then
+            cp "$FOUND_LOGO" "www/icon (2)_2.jpg" 2>/dev/null || true
+          fi
+
+          python3 -c '
+          import json
+          manifest = {
+            "name": "Al Ghadeer Khata Pro",
+            "short_name": "Khata Pro",
+            "start_url": "./index.html",
+            "display": "standalone",
+            "background_color": "#052359",
+            "theme_color": "#052359",
+            "icons": [{"src": "icon (2)_2.jpg", "sizes": "512x512", "type": "image/jpeg"}]
+          }
+          open("www/manifest.json", "w").write(json.dumps(manifest, indent=2))
+          sw = """const CACHE = "ag-khata-ios-v4";
+          self.addEventListener("install", e => { self.skipWaiting(); });
+          self.addEventListener("activate", e => { e.waitUntil(self.clients.claim()); });
+          self.addEventListener("fetch", e => { if (e.request.method === "GET") e.respondWith(fetch(e.request).catch(() => caches.match(e.request))); });
+          """
+          open("www/sw.js", "w").write(sw)
+          pkg = {
+            "name": "al-ghadeer-khata-pro-ios",
+            "version": "4.0.0",
+            "private": True,
+            "dependencies": {
+              "@capacitor/app": "^6.0.2",
+              "@capacitor/camera": "^6.1.2",
+              "@capacitor/core": "^6.2.0",
+              "@capacitor/dialog": "^6.0.2",
+              "@capacitor/filesystem": "^6.0.2",
+              "@capacitor/ios": "^6.2.0",
+              "@capacitor/share": "^6.0.3",
+              "@capacitor/status-bar": "^6.0.2"
+            },
+            "devDependencies": {
+              "@capacitor/cli": "^6.2.0"
+            }
+          }
+          open("package.json", "w").write(json.dumps(pkg, indent=2))
+          cap = {
+            "appId": "com.alghadeer.khatapro",
+            "appName": "Al Ghadeer Khata Pro",
+            "webDir": "www",
+            "backgroundColor": "#052359",
+            "ios": {"contentInset": "automatic", "backgroundColor": "#052359"}
+          }
+          open("capacitor.config.json", "w").write(json.dumps(cap, indent=2))
+          '
+
+      - name: Auto-Publish Live iPhone Home Screen App Link (GitHub Pages)
+        run: |
+          WORK_DIR=$(pwd)
+          mkdir -p "$RUNNER_TEMP/gh-pages"
+          cp -R www/* "$RUNNER_TEMP/gh-pages/"
+          touch "$RUNNER_TEMP/gh-pages/.nojekyll"
+          cd "$RUNNER_TEMP/gh-pages"
+          git init
+          git config user.name "AlGhadeerDevelopers"
+          git config user.email "info.alghadeer@yahoo.com"
+          git checkout -b gh-pages
+          git add -A
+          git commit -m "Deploy iPhone Home Screen PWA" || true
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push -f origin gh-pages || true
+          cd "$WORK_DIR"
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/pages" -f "source[branch]=gh-pages" -f "source[path]=/" 2>/dev/null || \
+          gh api -X PUT "repos/${GITHUB_REPOSITORY}/pages" -f "source[branch]=gh-pages" -f "source[path]=/" 2>/dev/null || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Native iOS (.IPA) Package
+        run: |
           npm install
-          npx cap add ios || true
+          rm -rf ios
+          npx cap add ios
           npx cap sync ios
 
-      - name: Inject Info.plist Permissions, Icons & Disable Pod Signing
-        run: |
-          if [ -f "ios-template/Info.plist" ]; then
-            cp -f ios-template/Info.plist ios/App/App/Info.plist
-          fi
-          if [ -d "ios-template/AppIcon.appiconset" ]; then
+          if [ -d "ios-template/AppIcon.appiconset" ] && [ -d "ios/App/App/Assets.xcassets" ]; then
             rm -rf ios/App/App/Assets.xcassets/AppIcon.appiconset
-            cp -r ios-template/AppIcon.appiconset ios/App/App/Assets.xcassets/
+            cp -R ios-template/AppIcon.appiconset ios/App/App/Assets.xcassets/
           fi
-          cd ios/App
-          if [ -f "Podfile" ]; then
-            cat << 'RUBY' >> Podfile
 
-            # Disable code signing requirements on CocoaPods targets for cloud unsigned IPA build
-            post_install do |installer|
-              installer.pods_project.targets.each do |target|
-                target.build_configurations.each do |config|
-                  config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
-                  config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
-                  config.build_settings['CODE_SIGN_IDENTITY'] = ''
-                  config.build_settings['EXPANDED_CODE_SIGN_IDENTITY'] = ''
-                end
+          python3 -c '
+          import os
+          p = "ios/App/Podfile"
+          if os.path.exists(p):
+              s = open(p).read()
+              hook = """
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"
+                config.build_settings["CODE_SIGNING_REQUIRED"] = "NO"
+                config.build_settings["CODE_SIGN_IDENTITY"] = ""
+                config.build_settings["EXPANDED_CODE_SIGN_IDENTITY"] = ""
               end
             end
-            RUBY
-            sed -i '' '/post_install do |installer|/,/end/{ /assertDeploymentTarget/d; }' Podfile || true
+          """
+              if "assertDeploymentTarget(installer)" in s:
+                  s = s.replace("assertDeploymentTarget(installer)", "assertDeploymentTarget(installer)\n" + hook)
+                  open(p, "w").write(s)
+          '
+
+          cd ios/App
+          if [ -f "Podfile" ]; then
             pod install
           fi
 
-      - name: Compile Unsigned iOS App & Package .IPA
-        run: |
-          cd ios/App
           if [ -d "App.xcworkspace" ]; then
-            XCODE_TARGET="-workspace App.xcworkspace"
+            XC_TARGET="-workspace App.xcworkspace"
           else
-            XCODE_TARGET="-project App.xcodeproj"
+            XC_TARGET="-project App.xcodeproj"
           fi
+
           xcodebuild build \
-            $XCODE_TARGET \
+            $XC_TARGET \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
@@ -82,15 +178,25 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             EXPANDED_CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
             COMPILER_INDEX_STORE_ENABLE=NO
+
+          APP_DIR=$(find "$RUNNER_TEMP/DerivedData" -name "App.app" -type d | head -n 1)
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
-          cp -R "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/App.app" "$RUNNER_TEMP/ipa/Payload/"
+          cp -R "$APP_DIR" "$RUNNER_TEMP/ipa/Payload/App.app"
           cd "$RUNNER_TEMP/ipa"
           zip -qry Al-Ghadeer-Khata-Pro-iOS.ipa Payload
 
-      - name: Upload Installable iOS .IPA Package
+      - name: Upload Native iOS (.IPA) File
         uses: actions/upload-artifact@v4
         with:
           name: Al-Ghadeer-Khata-Pro-iOS-IPA
           path: ${{ runner.temp }}/ipa/Al-Ghadeer-Khata-Pro-iOS.ipa
+          if-no-files-found: error
+
+      - name: Upload iPhone Home Screen Web App (PWA) Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Al-Ghadeer-Khata-Pro-iPhone-HomeScreen-PWA
+          path: www/
           if-no-files-found: error
